@@ -56,6 +56,8 @@
 
 static int restart_mode;
 static void *restart_reason;
+static int panic_to_recovery;
+module_param(panic_to_recovery, int, 0644);
 static bool scm_pmic_arbiter_disable_supported;
 static bool scm_deassert_ps_hold_supported;
 /* Download mode master kill-switch */
@@ -325,8 +327,15 @@ static void msm_restart_prepare(const char *cmd)
 
 		prev_reason = __raw_readl(restart_reason);
 		if (prev_reason != 0xABADF00D) {
-			__raw_writel(0xC0DEDEAD, restart_reason);
-			qpnp_pon_set_restart_reason(PON_RESTART_REASON_KERNEL_PANIC);
+			if (panic_to_recovery) {
+				qpnp_pon_set_restart_reason(
+					PON_RESTART_REASON_OEM_F);
+				__raw_writel(0x6f656d46, restart_reason);
+			} else {
+				__raw_writel(0xC0DEDEAD, restart_reason);
+				qpnp_pon_set_restart_reason(
+					PON_RESTART_REASON_KERNEL_PANIC);
+			}
 		}
 	} else if (cmd != NULL) {
 		if (!strncmp(cmd, "bootloader", 10)) {
