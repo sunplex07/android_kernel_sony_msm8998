@@ -20,12 +20,14 @@
  */
 
 #include <linux/delay.h>
+#include <linux/fb.h>
 #include <linux/gpio.h>
 #include <linux/input.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/notifier.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
 #include <linux/regulator/consumer.h>
@@ -78,14 +80,34 @@ struct fpc1145_data {
 	struct mutex lock;
 	bool prepared;
 	atomic_t wakeup_enabled;
-	bool wake_pending;
+	struct notifier_block fb_notifier;
+	bool screen_off;
 	bool pm_wakeup;
 	bool vcc_spi;
 	bool vdd_io;
 	bool vdd_ana;
 };
 
+#define FPC1145_WAKE_HOLD_MS 3000
+
 static irqreturn_t fpc1145_irq_handler(int irq, void *handle);
+
+static int fpc1145_fb_notifier_cb(struct notifier_block *nb,
+	unsigned long event, void *data)
+{
+	struct fpc1145_data *fpc1145 =
+		container_of(nb, struct fpc1145_data, fb_notifier);
+	struct fb_event *evdata = data;
+	int blank;
+
+	if (event != FB_EVENT_BLANK || !evdata || !evdata->data)
+		return NOTIFY_DONE;
+
+	blank = *(int *)evdata->data;
+	fpc1145->screen_off = (blank != FB_BLANK_UNBLANK);
+
+	return NOTIFY_DONE;
+}
 
 static int vreg_setup(struct fpc1145_data *fpc1145, const char *name,
 	bool enable)
@@ -490,9 +512,8 @@ static irqreturn_t fpc1145_irq_handler(int irq, void *handle)
 	struct fpc1145_data *fpc1145 = handle;
 
 	if (atomic_read(&fpc1145->wakeup_enabled)) {
-		pm_stay_awake(fpc1145->dev);
-		if (fpc1145->input && fpc1145->wake_pending) {
-			fpc1145->wake_pending = false;
+		pm_wakeup_event(fpc1145->dev, FPC1145_WAKE_HOLD_MS);
+		if (fpc1145->input && fpc1145->screen_off) {
 			input_report_key(fpc1145->input, KEY_WAKEUP, 1);
 			input_sync(fpc1145->input);
 			input_report_key(fpc1145->input, KEY_WAKEUP, 0);
@@ -630,6 +651,13 @@ static int fpc1145_probe(struct platform_device *pdev)
 		goto exit;
 	}
 
+	fpc1145->fb_notifier.notifier_call = fpc1145_fb_notifier_cb;
+	rc = fb_register_client(&fpc1145->fb_notifier);
+	if (rc) {
+		dev_err(dev, "could not register fb notifier\n");
+		goto exit;
+	}
+
 	irqf = IRQF_TRIGGER_RISING | IRQF_ONESHOT | IRQF_PERF_CRITICAL;
 	mutex_init(&fpc1145->lock);
 	rc = devm_request_threaded_irq(dev, gpio_to_irq(fpc1145->irq_gpio),
@@ -662,6 +690,7 @@ static int fpc1145_remove(struct platform_device *pdev)
 {
 	struct fpc1145_data *fpc1145 = platform_get_drvdata(pdev);
 
+	fb_unregister_client(&fpc1145->fb_notifier);
 	if (fpc1145->pm_wakeup)
 		disable_irq_wake(gpio_to_irq(fpc1145->irq_gpio));
 	device_init_wakeup(fpc1145->dev, false);
@@ -677,17 +706,6 @@ static int fpc1145_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static int fpc1145_suspend(struct device *dev)
-{
-	struct fpc1145_data *fpc1145 = dev_get_drvdata(dev);
-
-	if (fpc1145)
-		fpc1145->wake_pending = true;
-	return 0;
-}
-
-static SIMPLE_DEV_PM_OPS(fpc1145_pm_ops, fpc1145_suspend, NULL);
-
 static struct of_device_id fpc1145_of_match[] = {
 	{ .compatible = "fpc,fpc1020", },
 	{ .compatible = "fpc,fpc1145", },
@@ -700,7 +718,6 @@ static struct platform_driver fpc1145_driver = {
 		.name = "fpc1145",
 		.owner = THIS_MODULE,
 		.of_match_table = fpc1145_of_match,
-		.pm = &fpc1145_pm_ops,
 	},
 	.probe = fpc1145_probe,
 	.remove = fpc1145_remove,
