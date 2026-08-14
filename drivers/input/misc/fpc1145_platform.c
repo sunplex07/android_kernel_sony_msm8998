@@ -21,6 +21,7 @@
 
 #include <linux/delay.h>
 #include <linux/gpio.h>
+#include <linux/input.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -66,6 +67,7 @@ static struct vreg_config vreg_conf[] = {
 
 struct fpc1145_data {
 	struct device *dev;
+	struct input_dev *input;
 	struct pinctrl *fingerprint_pinctrl;
 	struct pinctrl_state *pinctrl_state[ARRAY_SIZE(pctl_names)];
 	struct regulator *vreg[ARRAY_SIZE(vreg_conf)];
@@ -488,6 +490,12 @@ static irqreturn_t fpc1145_irq_handler(int irq, void *handle)
 
 	if (atomic_read(&fpc1145->wakeup_enabled)) {
 		pm_stay_awake(fpc1145->dev);
+		if (fpc1145->input) {
+			input_report_key(fpc1145->input, KEY_WAKEUP, 1);
+			input_sync(fpc1145->input);
+			input_report_key(fpc1145->input, KEY_WAKEUP, 0);
+			input_sync(fpc1145->input);
+		}
 		dev_info(fpc1145->dev, "%s: wakeup mode\n", __func__);
 	} else {
 		dev_dbg(fpc1145->dev, "%s\n", __func__);
@@ -604,6 +612,21 @@ static int fpc1145_probe(struct platform_device *pdev)
 	rc = select_pin_ctl(fpc1145, "fpc1145_irq_active");
 	if (rc)
 		goto exit;
+
+	fpc1145->input = devm_input_allocate_device(dev);
+	if (!fpc1145->input) {
+		dev_err(dev, "could not allocate input device\n");
+		rc = -ENOMEM;
+		goto exit;
+	}
+	fpc1145->input->name = "fpc1145";
+	fpc1145->input->dev.parent = dev;
+	input_set_capability(fpc1145->input, EV_KEY, KEY_WAKEUP);
+	rc = input_register_device(fpc1145->input);
+	if (rc) {
+		dev_err(dev, "could not register input device\n");
+		goto exit;
+	}
 
 	irqf = IRQF_TRIGGER_RISING | IRQF_ONESHOT | IRQF_PERF_CRITICAL;
 	mutex_init(&fpc1145->lock);
