@@ -78,6 +78,7 @@ struct fpc1145_data {
 	struct mutex lock;
 	bool prepared;
 	atomic_t wakeup_enabled;
+	bool wake_pending;
 	bool pm_wakeup;
 	bool vcc_spi;
 	bool vdd_io;
@@ -490,7 +491,8 @@ static irqreturn_t fpc1145_irq_handler(int irq, void *handle)
 
 	if (atomic_read(&fpc1145->wakeup_enabled)) {
 		pm_stay_awake(fpc1145->dev);
-		if (fpc1145->input) {
+		if (fpc1145->input && fpc1145->wake_pending) {
+			fpc1145->wake_pending = false;
 			input_report_key(fpc1145->input, KEY_WAKEUP, 1);
 			input_sync(fpc1145->input);
 			input_report_key(fpc1145->input, KEY_WAKEUP, 0);
@@ -675,6 +677,17 @@ static int fpc1145_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static int fpc1145_suspend(struct device *dev)
+{
+	struct fpc1145_data *fpc1145 = dev_get_drvdata(dev);
+
+	if (fpc1145)
+		fpc1145->wake_pending = true;
+	return 0;
+}
+
+static SIMPLE_DEV_PM_OPS(fpc1145_pm_ops, fpc1145_suspend, NULL);
+
 static struct of_device_id fpc1145_of_match[] = {
 	{ .compatible = "fpc,fpc1020", },
 	{ .compatible = "fpc,fpc1145", },
@@ -687,6 +700,7 @@ static struct platform_driver fpc1145_driver = {
 		.name = "fpc1145",
 		.owner = THIS_MODULE,
 		.of_match_table = fpc1145_of_match,
+		.pm = &fpc1145_pm_ops,
 	},
 	.probe = fpc1145_probe,
 	.remove = fpc1145_remove,
