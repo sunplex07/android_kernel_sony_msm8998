@@ -1,4 +1,4 @@
 [submodule "KernelSU-Next"]
 	path = KernelSU-Next
-	url = git@github.com:justinlin099/KernelSU-Next.git
-	branch = legacy
+	url = https://github.com/sunplex07/KernelSU-Next.git
+	branch = legacy-lilac
