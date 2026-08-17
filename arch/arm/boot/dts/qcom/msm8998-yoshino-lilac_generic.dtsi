@@ -19,9 +19,29 @@
 
 #include "msm8998-yoshino-lilac_common.dtsi"
 
+/*
+ * BOTH NFC controllers are described here, because one kernel image serves both
+ * the G8441 (NXP PN553) and the docomo SO-02K / lilac_dcm (Sony CXD224x + ROHM
+ * BD7602 FeliCa). Only the node matching the hardware actually present will have
+ * a driver bound to it.
+ *
+ * This is only safe because both drivers are built as MODULES and exactly one is
+ * loaded per boot (see the nfc_variant selection in device/sony/lilac). Do not
+ * change either to =y: the two nodes deliberately share GPIO 92 (the IRQ line,
+ * NFC_IRQ_FELICA_INT_N) and GPIO 93, and neither driver's probe checks whether
+ * its chip is actually on the bus — both call i2c_check_functionality, which only
+ * tests the ADAPTER, and then go straight to gpio_request. Built in together they
+ * would race for those pins and whichever probed first would lock the other out.
+ *
+ * The DCM variant previously had its own DTB (msm8998-v2.1-yoshino-lilac_dcm.dtb),
+ * which could not work as an auto-selected alternative anyway: both it and the
+ * generic DTB declare qcom,board-id = <8 0>, so the bootloader has nothing to tell
+ * them apart.
+ */
 &soc {
 	/* I2C : BLSP7 */
 	i2c@c1b5000 { /* BLSP2 QUP1 */
+		/* G8441 (ROW): NXP PN553 */
 		nfc@28 {
 			compatible = "nxp,pn553";
 			reg = <0x28>;
@@ -35,10 +55,36 @@
 			clocks = <&clock_gcc clk_ln_bb_clk3_pin>;
 			clock-names = "nfc_clk";
 		};
+
+		/* SO-02K (docomo): ROHM BD7602 FeliCa LDO + Sony CXD224x */
+		felica_ldo@1e {
+			compatible = "rohm,bd7602";
+			reg = <0x1e>;
+		};
+		felica@29 {
+			compatible = "sony,cxd224x-i2c";
+			reg = <0x29>;
+			interrupt-parent = <&tlmm>;
+			interrupts = <92 0x2002>;
+			sony,nfc_int = <&tlmm 92 0>;
+			sony,nfc_wake = <&tlmm 93 0>;
+
+			pinctrl-names = "felica_active","felica_suspend";
+			pinctrl-0 = <&msm_gpio_92>;
+			pinctrl-1 = <&msm_gpio_92>;
+
+			/* Defined in Clock Distribution */
+			clocks = <&clock_gcc clk_ln_bb_clk3_pin>;
+			clock-names = "felica_clk";
+		};
 	};
 
 	nfc,pm-ops {
 		compatible = "sony,pn553-pm-ops";
+	};
+
+	felica,pm-ops {
+		compatible = "sony,cxd224x-pm-ops";
 	};
 
 	somc_pinctrl: somc_pinctrl {
