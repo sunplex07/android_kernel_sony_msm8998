@@ -2265,7 +2265,8 @@ static int selinux_vm_enough_memory(struct mm_struct *mm, long pages)
 /* binprm security operations */
 
 #ifdef CONFIG_KSU
-extern bool is_ksu_transition(u32 old_sid, u32 new_sid);
+extern bool is_ksu_transition(const struct task_security_struct *old_tsec,
+			      const struct task_security_struct *new_tsec);
 #endif
 
 static int check_nnp_nosuid(const struct linux_binprm *bprm,
@@ -2284,7 +2285,7 @@ static int check_nnp_nosuid(const struct linux_binprm *bprm,
 
 #ifdef CONFIG_KSU
 
-	if (is_ksu_transition(old_tsec->sid, new_tsec->sid)) {
+	if (is_ksu_transition(old_tsec, new_tsec)) {
 		return 0;
 
 	}

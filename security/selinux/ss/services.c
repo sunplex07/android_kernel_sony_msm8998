@@ -858,7 +858,8 @@ out:
  * @newsid : destinated security identifier
  */
 #ifdef CONFIG_KSU
-extern bool is_ksu_transition(u32 old_sid, u32 new_sid);
+extern bool is_ksu_transition(const struct task_security_struct *old_tsec,
+			      const struct task_security_struct *new_tsec);
 #endif
 
 int security_bounded_transition(u32 old_sid, u32 new_sid)
@@ -873,7 +874,10 @@ int security_bounded_transition(u32 old_sid, u32 new_sid)
 
 #ifdef CONFIG_KSU
 
-	if (is_ksu_transition(old_sid, new_sid)) {
+	/* upstream's api reads the task security sids, not int args */
+	if (is_ksu_transition(
+		    &(const struct task_security_struct){ .sid = old_sid },
+		    &(const struct task_security_struct){ .sid = new_sid })) {
 		return 0;
 	}
 
