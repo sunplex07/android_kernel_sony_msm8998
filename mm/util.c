@@ -315,6 +315,25 @@ unsigned long vm_mmap(struct file *file, unsigned long addr,
 }
 EXPORT_SYMBOL(vm_mmap);
 
+/* kvmalloc backport for GFP_KERNEL, built on 4.4's vmalloc api.
+ * anything that can't sleep must never end up in the vmalloc path
+ */
+void *kvmalloc(size_t size, gfp_t flags)
+{
+	gfp_t kmalloc_flags = flags;
+	void *ret;
+
+	if ((flags & GFP_KERNEL) != GFP_KERNEL)
+		return kmalloc(size, flags);
+	if (size > PAGE_SIZE)
+		kmalloc_flags |= __GFP_NOWARN | __GFP_NORETRY;
+	ret = kmalloc(size, kmalloc_flags);
+	if (ret || size <= PAGE_SIZE)
+		return ret;
+	return __vmalloc(size, flags, PAGE_KERNEL);
+}
+EXPORT_SYMBOL(kvmalloc);
+
 void kvfree(const void *addr)
 {
 	if (is_vmalloc_addr(addr))
