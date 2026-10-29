@@ -13,6 +13,18 @@
 #include <linux/magic.h>
 #include <linux/types.h>
 
+/* old style seqno view for external policy editors (ksu). this isn't the
+ * modern selinux state api, policydb/sidtab/policy_rwlock are still global.
+ * the counter is shared with security_compute_av() and policy reloads
+ */
+struct selinux_legacy_ss {
+	u32 latest_granting;
+};
+struct selinux_legacy_state {
+	struct selinux_legacy_ss *ss;
+};
+extern const struct selinux_legacy_state selinux_state;
+
 #define SECSID_NULL			0x00000000 /* unspecified SID */
 #define SECSID_WILD			0xffffffff /* wildcard SID */
 #define SECCLASS_NULL			0x0000 /* no class */
