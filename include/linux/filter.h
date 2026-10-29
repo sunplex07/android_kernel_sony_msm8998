@@ -496,6 +496,8 @@ struct bpf_skb_data_end {
 struct xdp_buff {
 	void *data;
 	void *data_end;
+	/* real start of the packet buffer, bpf_xdp_adjust_head needs it */
+	void *data_hard_start;
 };
 
 /* compute the linear packet data range [data, data_end) which

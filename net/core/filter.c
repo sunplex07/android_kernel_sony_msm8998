@@ -2211,12 +2211,74 @@ static const struct bpf_func_proto bpf_skb_change_tail_proto = {
 	.arg3_type	= ARG_ANYTHING,
 };
 
+BPF_CALL_3(bpf_skb_change_head, struct sk_buff *, skb, u32, head_room,
+	   u64, flags)
+{
+	u32 max_len = BPF_SKB_MAX_LEN;
+	u32 new_len = skb->len + head_room;
+	int ret;
+
+	if (unlikely(flags || (!skb_is_gso(skb) && new_len > max_len) ||
+		     new_len < skb->len))
+		return -EINVAL;
+
+	ret = skb_cow(skb, head_room);
+	if (likely(!ret)) {
+		/* for now this helper can only grow the mac header,
+		 * so skb->protocol, the network header etc stay
+		 * as they are. it's more flexible than
+		 * bpf_skb_change_tail() since it doesn't have to
+		 * linearize or reset gso. the idea is that an l3
+		 * skb can use it to push a mac header on so it
+		 * can get redirected into an l2 device. pretty
+		 * much what upstream's version does too
+		 */
+		__skb_push(skb, head_room);
+		memset(skb->data, 0, head_room);
+		skb_reset_mac_header(skb);
+	}
+
+	bpf_compute_data_end(skb);
+	return 0;
+}
+
+static const struct bpf_func_proto bpf_skb_change_head_proto = {
+	.func		= bpf_skb_change_head,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_ANYTHING,
+	.arg3_type	= ARG_ANYTHING,
+};
+
+BPF_CALL_2(bpf_xdp_adjust_head, struct xdp_buff *, xdp, int, offset)
+{
+	void *data = xdp->data + offset;
+
+	if (unlikely(data < xdp->data_hard_start ||
+		     data > xdp->data_end - ETH_HLEN))
+		return -EINVAL;
+
+	xdp->data = data;
+
+	return 0;
+}
+
+static const struct bpf_func_proto bpf_xdp_adjust_head_proto = {
+	.func		= bpf_xdp_adjust_head,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_ANYTHING,
+};
+
 bool bpf_helper_changes_skb_data(void *func)
 {
 	if (func == bpf_skb_vlan_push ||
 	    func == bpf_skb_vlan_pop ||
 	    func == bpf_skb_store_bytes ||
 	    func == bpf_skb_change_proto ||
+	    func == bpf_skb_change_head ||
 	    func == bpf_skb_change_tail ||
 	    func == bpf_skb_pull_data ||
 	    func == bpf_clone_redirect ||
@@ -2582,6 +2644,17 @@ static const struct bpf_func_proto bpf_get_socket_uid_proto = {
 	.arg1_type      = ARG_PTR_TO_CTX,
 };
 
+BPF_CALL_0(bpf_get_numa_node_id)
+{
+	return numa_node_id();
+}
+
+static const struct bpf_func_proto bpf_get_numa_node_id_proto = {
+	.func		= bpf_get_numa_node_id,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+};
+
 static const struct bpf_func_proto *
 sk_filter_func_proto(enum bpf_func_id func_id)
 {
@@ -2600,6 +2673,8 @@ sk_filter_func_proto(enum bpf_func_id func_id)
 		return &bpf_tail_call_proto;
 	case BPF_FUNC_ktime_get_ns:
 		return &bpf_ktime_get_ns_proto;
+	case BPF_FUNC_get_numa_node_id:
+		return &bpf_get_numa_node_id_proto;
 	case BPF_FUNC_trace_printk:
 		if (capable(CAP_SYS_ADMIN))
 			return bpf_get_trace_printk_proto();
@@ -2646,6 +2721,8 @@ tc_cls_act_func_proto(enum bpf_func_id func_id)
 		return &bpf_skb_change_type_proto;
 	case BPF_FUNC_skb_change_tail:
 		return &bpf_skb_change_tail_proto;
+	case BPF_FUNC_skb_change_head:
+		return &bpf_skb_change_head_proto;
 	case BPF_FUNC_skb_get_tunnel_key:
 		return &bpf_skb_get_tunnel_key_proto;
 	case BPF_FUNC_skb_set_tunnel_key:
@@ -2681,6 +2758,8 @@ xdp_func_proto(enum bpf_func_id func_id)
 		return &bpf_xdp_event_output_proto;
 	case BPF_FUNC_get_smp_processor_id:
 		return &bpf_get_smp_processor_id_proto;
+	case BPF_FUNC_xdp_adjust_head:
+		return &bpf_xdp_adjust_head_proto;
 	default:
 		return sk_filter_func_proto(func_id);
 	}
