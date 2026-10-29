@@ -1651,7 +1651,12 @@ static int do_execveat_common(int fd, struct filename *filename,
 	if (retval < 0)
 		goto out;
 
-	if (capable(CAP_SYS_ADMIN)) {
+	/*
+	 * this is just optional perf/zygote tagging. capable() logs a denial for
+	 * every exec from a domain without sys_admin (~70 avc lines a boot), so
+	 * do the same check (and PF_SUPERPRIV) without the audit spam
+	 */
+	if (ns_capable_noaudit(&init_user_ns, CAP_SYS_ADMIN)) {
 		if (unlikely(!strcmp(filename->name, ZYGOTE32_BIN)))
 			zygote32_task = current;
 		else if (unlikely(!strcmp(filename->name, ZYGOTE64_BIN)))
