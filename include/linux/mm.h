@@ -191,6 +191,14 @@ extern unsigned int kobjsize(const void *objp);
 #if defined(CONFIG_X86)
 /* MPX specific bounds table or bounds directory */
 # define VM_MPX		VM_ARCH_2
+#else
+/*
+ * MADV_WIPEONFORK backport (upstream d2cd9ede6e19, 4.14): the child gets a
+ * wiped vma. upstream uses bit 0x02000000, it's free here since VM_ARCH_2 is
+ * only used by x86 mpx. bionic's arc4random needs this so every app forked
+ * from zygote gets its own rng state
+ */
+# define VM_WIPEONFORK	VM_ARCH_2
 #endif
 
 #ifndef VM_GROWSUP

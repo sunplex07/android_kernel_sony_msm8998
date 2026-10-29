@@ -72,6 +72,19 @@ static long madvise_behavior(struct vm_area_struct *vma,
 		}
 		new_flags &= ~VM_DONTCOPY;
 		break;
+#ifdef VM_WIPEONFORK
+	case MADV_WIPEONFORK:
+		/* MADV_WIPEONFORK only works on anon memory */
+		if (vma->vm_file || vma->vm_flags & VM_SHARED) {
+			error = -EINVAL;
+			goto out;
+		}
+		new_flags |= VM_WIPEONFORK;
+		break;
+	case MADV_KEEPONFORK:
+		new_flags &= ~VM_WIPEONFORK;
+		break;
+#endif
 	case MADV_DONTDUMP:
 		new_flags |= VM_DONTDUMP;
 		break;
