@@ -76,7 +76,8 @@ int selinux_policycap_netpeer;
 int selinux_policycap_openperm;
 int selinux_policycap_alwaysnetwork;
 
-static DEFINE_RWLOCK(policy_rwlock);
+/* shared with the built-in policy editors, every policy reader takes it */
+DEFINE_RWLOCK(policy_rwlock);
 
 static struct sidtab sidtab;
 struct policydb policydb;
@@ -88,7 +89,8 @@ int ss_initialized;
  * The sequence number only changes when a policy change
  * occurs.
  */
-static u32 latest_granting;
+static struct selinux_legacy_ss legacy_ss;
+const struct selinux_legacy_state selinux_state = { .ss = &legacy_ss };
 
 /* Forward declaration. */
 static int context_struct_to_string(struct context *context, char **scontext,
@@ -949,7 +951,7 @@ static void avd_init(struct av_decision *avd)
 	avd->allowed = 0;
 	avd->auditallow = 0;
 	avd->auditdeny = 0xffffffff;
-	avd->seqno = latest_granting;
+	avd->seqno = legacy_ss.latest_granting;
 	avd->flags = 0;
 }
 
@@ -2074,7 +2076,7 @@ int security_load_policy(void *data, size_t len)
 
 		security_load_policycaps();
 		ss_initialized = 1;
-		seqno = ++latest_granting;
+		seqno = ++legacy_ss.latest_granting;
 		selinux_complete_init();
 		avc_ss_reset(seqno);
 		selnl_notify_policyload(seqno);
@@ -2149,7 +2151,7 @@ int security_load_policy(void *data, size_t len)
 	oldmap = current_mapping;
 	current_mapping = map;
 	current_mapping_size = map_size;
-	seqno = ++latest_granting;
+	seqno = ++legacy_ss.latest_granting;
 	write_unlock_irq(&policy_rwlock);
 
 	/* Free the old policydb and SID table. */
@@ -2686,7 +2688,7 @@ int security_set_bools(int len, int *values)
 			goto out;
 	}
 
-	seqno = ++latest_granting;
+	seqno = ++legacy_ss.latest_granting;
 	rc = 0;
 out:
 	write_unlock_irq(&policy_rwlock);
@@ -3088,7 +3090,7 @@ int selinux_audit_rule_init(u32 field, u32 op, char *rulestr, void **vrule)
 
 	read_lock(&policy_rwlock);
 
-	tmprule->au_seqno = latest_granting;
+	tmprule->au_seqno = legacy_ss.latest_granting;
 
 	switch (field) {
 	case AUDIT_SUBJ_USER:
@@ -3178,7 +3180,7 @@ int selinux_audit_rule_match(u32 sid, u32 field, u32 op, void *vrule,
 
 	read_lock(&policy_rwlock);
 
-	if (rule->au_seqno < latest_granting) {
+	if (rule->au_seqno < legacy_ss.latest_granting) {
 		match = -ESTALE;
 		goto out;
 	}
