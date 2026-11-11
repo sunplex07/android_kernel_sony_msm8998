@@ -207,12 +207,11 @@ static int decompress_exec(
 
 	/* Read in first chunk of data and parse gzip header. */
 	fpos = offset;
-	ret = kernel_read(bprm->file, offset, buf, LBUFSIZE);
+	ret = kernel_read(bprm->file, buf, LBUFSIZE, &fpos);
 
 	strm.next_in = buf;
 	strm.avail_in = ret;
 	strm.total_in = 0;
-	fpos += ret;
 
 	retval = -ENOEXEC;
 
@@ -278,7 +277,7 @@ static int decompress_exec(
 	}
 
 	while ((ret = zlib_inflate(&strm, Z_NO_FLUSH)) == Z_OK) {
-		ret = kernel_read(bprm->file, fpos, buf, LBUFSIZE);
+		ret = kernel_read(bprm->file, buf, LBUFSIZE, &fpos);
 		if (ret <= 0)
 			break;
 		len -= ret;
@@ -286,7 +285,6 @@ static int decompress_exec(
 		strm.next_in = buf;
 		strm.avail_in = ret;
 		strm.total_in = 0;
-		fpos += ret;
 	}
 
 	if (ret < 0) {
@@ -829,7 +827,7 @@ static int load_flat_shared_library(int id, struct lib_info *libs)
 	if (IS_ERR(bprm.file))
 		return res;
 
-	res = kernel_read(bprm.file, pos, bprm.buf, BINPRM_BUF_SIZE);
+	res = kernel_read(bprm.file, bprm.buf, BINPRM_BUF_SIZE, &pos);
 	if (res >= 0)
 		res = load_flat_file(&bprm, libs, id, NULL);
 

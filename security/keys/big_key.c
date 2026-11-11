@@ -61,6 +61,7 @@ int big_key_preparse(struct key_preparsed_payload *prep)
 	struct file *file;
 	ssize_t written;
 	size_t datalen = prep->datalen;
+	loff_t pos = 0;
 	int ret;
 
 	ret = -EINVAL;
@@ -84,7 +85,7 @@ int big_key_preparse(struct key_preparsed_payload *prep)
 			goto error;
 		}
 
-		written = kernel_write(file, prep->data, prep->datalen, 0);
+		written = kernel_write(file, prep->data, prep->datalen, &pos);
 		if (written != datalen) {
 			ret = written;
 			if (written >= 0)
