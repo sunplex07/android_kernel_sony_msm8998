@@ -44,7 +44,7 @@ static void nsfs_evict(struct inode *inode)
 	ns->ops->put(ns);
 }
 
-void *ns_get_path(struct path *path, struct task_struct *task,
+int ns_get_path(struct path *path, struct task_struct *task,
 			const struct proc_ns_operations *ns_ops)
 {
 	struct vfsmount *mnt = mntget(nsfs_mnt);
@@ -58,7 +58,7 @@ again:
 	ns = ns_ops->get(task);
 	if (!ns) {
 		mntput(mnt);
-		return ERR_PTR(-ENOENT);
+		return -ENOENT;
 	}
 	rcu_read_lock();
 	d = atomic_long_read(&ns->stashed);
@@ -72,14 +72,14 @@ again:
 got_it:
 	path->mnt = mnt;
 	path->dentry = dentry;
-	return NULL;
+	return 0;
 slow:
 	rcu_read_unlock();
 	inode = new_inode_pseudo(mnt->mnt_sb);
 	if (!inode) {
 		ns_ops->put(ns);
 		mntput(mnt);
-		return ERR_PTR(-ENOMEM);
+		return -ENOMEM;
 	}
 	inode->i_ino = ns->inum;
 	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME;
@@ -92,7 +92,7 @@ slow:
 	if (!dentry) {
 		iput(inode);
 		mntput(mnt);
-		return ERR_PTR(-ENOMEM);
+		return -ENOMEM;
 	}
 	d_instantiate(dentry, inode);
 	dentry->d_flags |= DCACHE_RCUACCESS;
