@@ -19,6 +19,18 @@
 
 #include "msm8998-yoshino-poplar_common.dtsi"
 
+/*
+ * BOTH NFC controllers are described here: one kernel serves the G8341/G8342
+ * (NXP PN553) and the Japanese SO-01K / SOV36 / 701SO (Sony CXD224x + ROHM
+ * BD7602 FeliCa). The poplar_kddi DTB cannot be auto-selected — it declares the
+ * same qcom,board-id = <8 0> as this one.
+ *
+ * Only safe because both drivers are MODULES and exactly one is loaded per boot
+ * by init.poplar-nfc.sh. Do not make either =y: the nodes share GPIO 92 (IRQ)
+ * and 93, and neither probe checks its chip is on the bus, so built-in they
+ * would race for the pins. Same design as lilac (G8441 / SO-02K).
+ */
+
 &soc {
 	/* I2C : BLSP7 */
 	i2c@c1b5000 { /* BLSP2 QUP1 */
@@ -35,10 +47,42 @@
 			clocks = <&clock_gcc clk_ln_bb_clk3_pin>;
 			clock-names = "nfc_clk";
 		};
+
+		/* Japanese variants (SO-01K / SOV36 / 701SO): ROHM BD7602 FeliCa LDO + Sony CXD224x */
+		felica_ldo@1e {
+			compatible = "rohm,bd7602";
+			reg = <0x1e>;
+		};
+		felica@29 {
+			compatible = "sony,cxd224x-i2c";
+			reg = <0x29>;
+			interrupt-parent = <&tlmm>;
+			interrupts = <92 0x2002>;
+			sony,nfc_int = <&tlmm 92 0>;
+			sony,nfc_wake = <&tlmm 93 0>;
+
+			/*
+			 * Sony's JP boards (poplar_jp-common, lilac_dcm) run GPIO 92 with
+			 * bias-disable; the ROW msm_gpio_92 default below pulls it down.
+			 * cxd224x selects these states itself at probe/resume, so the JP
+			 * bias applies only once the FeliCa driver is loaded.
+			 */
+			pinctrl-names = "felica_active","felica_suspend";
+			pinctrl-0 = <&msm_gpio_92_felica>;
+			pinctrl-1 = <&msm_gpio_92_felica>;
+
+			/* Defined in Clock Distribution */
+			clocks = <&clock_gcc clk_ln_bb_clk3_pin>;
+			clock-names = "felica_clk";
+		};
 	};
 
 	nfc,pm-ops {
 		compatible = "sony,pn553-pm-ops";
+	};
+
+	felica,pm-ops {
+		compatible = "sony,cxd224x-pm-ops";
 	};
 
 	somc_pinctrl: somc_pinctrl {
@@ -60,6 +104,21 @@
 			pins = "gpio92";
 			drive-strength = <2>;
 			bias-pull-down;
+			input-enable;
+		};
+	};
+
+	/* GPIO_92 as Sony's JP boards configure it (msm8998-yoshino-poplar_jp-common.dtsi) */
+	msm_gpio_92_felica: msm_gpio_92_felica {
+		mux {
+			pins = "gpio92";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio92";
+			drive-strength = <2>;
+			bias-disable;
 			input-enable;
 		};
 	};
