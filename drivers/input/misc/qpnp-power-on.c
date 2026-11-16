@@ -163,6 +163,7 @@
 #define QPNP_PON_BUFFER_SIZE			9
 
 #define QPNP_POFF_REASON_UVLO			13
+#define QPNP_GEN2_FAULT_REASON_UVLO		22
 
 enum qpnp_pon_version {
 	QPNP_PON_GEN1_V1,
@@ -2088,7 +2089,9 @@ static int qpnp_pon_debugfs_uvlo_set(void *data, u64 val)
 	struct qpnp_pon *pon = (struct qpnp_pon *) data;
 
 	if (pon->pon_trigger_reason == PON_SMPL ||
-		pon->pon_power_off_reason == QPNP_POFF_REASON_UVLO)
+		pon->pon_power_off_reason == QPNP_POFF_REASON_UVLO ||
+		(is_pon_gen2(pon) &&
+		 pon->pon_power_off_reason == QPNP_GEN2_FAULT_REASON_UVLO))
 		panic("An UVLO was occurred.\n");
 	pon->uvlo = val;
 
@@ -2136,7 +2139,8 @@ static int read_gen2_pon_off_reason(struct qpnp_pon *pon, u16 *reason,
 					int *reason_index_offset)
 {
 	int rc;
-	int buf[2], reg;
+	unsigned int val, reg;
+	u8 fault[2] = { 0, 0 };
 
 	rc = regmap_read(pon->regmap,
 			QPNP_PON_OFF_REASON(pon),
@@ -2150,35 +2154,35 @@ static int read_gen2_pon_off_reason(struct qpnp_pon *pon, u16 *reason,
 	if (reg & QPNP_GEN2_POFF_SEQ) {
 		rc = regmap_read(pon->regmap,
 				QPNP_POFF_REASON1(pon),
-				buf);
+				&val);
 		if (rc) {
 			dev_err(&pon->pdev->dev, "Unable to read POFF_REASON1 reg rc:%d\n",
 				rc);
 			return rc;
 		}
-		*reason = (u8)buf[0];
+		*reason = (u8)val;
 		*reason_index_offset = 0;
 	} else if (reg & QPNP_GEN2_FAULT_SEQ) {
 		rc = regmap_bulk_read(pon->regmap,
 				QPNP_FAULT_REASON1(pon),
-				buf, 2);
+				fault, 2);
 		if (rc) {
 			dev_err(&pon->pdev->dev, "Unable to read FAULT_REASON regs rc:%d\n",
 				rc);
 			return rc;
 		}
-		*reason = (u8)buf[0] | (u16)(buf[1] << 8);
+		*reason = fault[0] | ((u16)fault[1] << 8);
 		*reason_index_offset = POFF_REASON_FAULT_OFFSET;
 	} else if (reg & QPNP_GEN2_S3_RESET_SEQ) {
 		rc = regmap_read(pon->regmap,
 				QPNP_S3_RESET_REASON(pon),
-				buf);
+				&val);
 		if (rc) {
 			dev_err(&pon->pdev->dev, "Unable to read S3_RESET_REASON reg rc:%d\n",
 				rc);
 			return rc;
 		}
-		*reason = (u8)buf[0];
+		*reason = (u8)val;
 		*reason_index_offset = POFF_REASON_S3_RESET_OFFSET;
 	}
 
@@ -2395,7 +2399,9 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 	}
 
 	if (pon->pon_trigger_reason == PON_SMPL ||
-		pon->pon_power_off_reason == QPNP_POFF_REASON_UVLO) {
+		pon->pon_power_off_reason == QPNP_POFF_REASON_UVLO ||
+		(is_pon_gen2(pon) &&
+		 pon->pon_power_off_reason == QPNP_GEN2_FAULT_REASON_UVLO)) {
 		if (of_property_read_bool(pdev->dev.of_node,
 						"qcom,uvlo-panic"))
 			panic("An UVLO was occurred.");
